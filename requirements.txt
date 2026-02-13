@@ -1,0 +1,8 @@
+yfinance
+fredapi
+pandas
+numpy
+scikit-learn
+python-dotenv
+scipy
+plotly
