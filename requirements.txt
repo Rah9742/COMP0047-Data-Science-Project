@@ -6,3 +6,8 @@ scikit-learn
 python-dotenv
 scipy
 plotly
+matplotlib
+seaborn
+pyarrow
+fredapi
+ta
