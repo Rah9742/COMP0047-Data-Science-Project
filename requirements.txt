@@ -11,5 +11,9 @@ seaborn
 pyarrow
 fredapi
 ta
-tensortflow
+tensorflow
 keras
+ipykernel
+ruptures
+statsmodels
+hmmlearn
