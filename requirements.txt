@@ -17,3 +17,5 @@ ipykernel
 ruptures
 statsmodels
 hmmlearn
+xgboost
+shap
