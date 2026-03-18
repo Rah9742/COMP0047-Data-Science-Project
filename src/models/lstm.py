@@ -25,7 +25,7 @@ stationary_features = [
     'MACD_Hist_Accel'
 ]
 
-cv_path      = "notebooks/data/cv.csv"
+cv_path      = "data/cv.csv"
 lstm_path    = "src/trained/lstm_classification.keras"
 results_path = "src/trained/results"
 window_size  = 20
