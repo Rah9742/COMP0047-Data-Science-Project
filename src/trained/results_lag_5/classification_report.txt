@@ -1,0 +1,8 @@
+              precision    recall  f1-score   support
+
+        Bear       0.40      0.94      0.56       340
+        Bull       0.95      0.44      0.60       848
+
+    accuracy                           0.58      1188
+   macro avg       0.68      0.69      0.58      1188
+weighted avg       0.79      0.58      0.59      1188

@@ -15,6 +15,8 @@ from sklearn.metrics import (confusion_matrix, classification_report,
                              accuracy_score, roc_auc_score,
                              precision_score, recall_score)
 
+from src.scripts.cv_dataset import create_cv_dataset
+
 
 stationary_features = [
     'Return', 'Return_5d', 'Return_20d', 'Return_Smooth',
@@ -25,12 +27,12 @@ stationary_features = [
     'MACD_Hist_Accel'
 ]
 
-cv_path      = "data/cv.csv"
-lstm_path    = "src/trained/lstm_classification.keras"
-results_path = "src/trained/results"
-window_size  = 20
-n_features   = len(stationary_features)
-n_splits     = 5
+cv_path = "data/cv.csv"
+window_size = 20
+n_features  = len(stationary_features)
+n_splits    = 5
+
+LAGS = [1, 5, 30]
 
 SEED = 42
 os.environ["PYTHONHASHSEED"] = str(SEED)
@@ -39,13 +41,23 @@ tf.random.set_seed(SEED)
 os.environ["TF_DETERMINISTIC_OPS"] = "1"
 
 
-def load_data():
-    data = pd.read_csv(cv_path).dropna(subset=["target"] + stationary_features)
+def get_paths(lag: int) -> tuple[str, str]:
+    lstm_path    = f"src/trained/trained_lstm_lag_{lag}/lstm_classification.keras"
+    results_path = f"src/trained/results_lag_{lag}"
+    return lstm_path, results_path
 
-    X = data[stationary_features]
-    y = data["target"]
 
-    total_rows = len(data)
+def load_data(lag: int):
+    data = create_cv_dataset()
+
+    lagged_col = f'lagged_target_{lag}'
+    data[lagged_col] = data['regime_binary'].shift(-lag)
+    data_x = data.dropna(subset=[lagged_col])
+
+    X = data_x[stationary_features]
+    y = data_x[lagged_col]
+
+    total_rows = len(data_x)
     val_end    = int(total_rows * 0.85)
 
     X_cv   = X.iloc[:val_end]
@@ -53,7 +65,7 @@ def load_data():
     X_test = X.iloc[val_end:]
     y_test = y.iloc[val_end:]
 
-    scaler        = StandardScaler()
+    scaler = StandardScaler()
     scaler.fit(X_cv)
     X_test_scaled = scaler.transform(X_test)
 
@@ -86,7 +98,6 @@ def build_model(window_size: int, n_features: int,
 
     inputs = Input(shape=(window_size, n_features), name="Features")
 
-    # First LSTM layer — return sequences so second LSTM can attend to all timesteps
     x = LSTM(
         lstm_units_1,
         return_sequences=True,
@@ -98,7 +109,6 @@ def build_model(window_size: int, n_features: int,
     x = BatchNormalization(name="BN_1")(x)
     x = Dropout(dropout_rate, name="Dropout_1")(x)
 
-    # Second LSTM layer
     x = LSTM(
         lstm_units_2,
         return_sequences=False,
@@ -110,7 +120,6 @@ def build_model(window_size: int, n_features: int,
     x = BatchNormalization(name="BN_2")(x)
     x = Dropout(dropout_rate, name="Dropout_2")(x)
 
-    # Dense head
     x = Dense(
         dense_units,
         activation="relu",
@@ -131,7 +140,7 @@ def build_model(window_size: int, n_features: int,
     return model
 
 
-def save_fold_curves(fold_histories: list) -> None:
+def save_fold_curves(fold_histories: list, results_path: str) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     for fold, h in enumerate(fold_histories):
@@ -156,7 +165,7 @@ def save_fold_curves(fold_histories: list) -> None:
     plt.close()
 
 
-def train_crossval(X_cv: np.ndarray, y_cv: np.ndarray) -> None:
+def train_crossval(X_cv: np.ndarray, y_cv: np.ndarray, lstm_path: str, results_path: str) -> None:
     tscv = TimeSeriesSplit(n_splits=n_splits)
 
     fold_metrics = {
@@ -245,10 +254,10 @@ def train_crossval(X_cv: np.ndarray, y_cv: np.ndarray) -> None:
     cv_df.to_csv(os.path.join(results_path, "cv_summary.csv"))
     print(f"CV summary saved to {results_path}/cv_summary.csv")
 
-    save_fold_curves(fold_histories)
+    save_fold_curves(fold_histories, results_path)
 
 
-def output_results(model: tf.keras.Model, X_test: np.ndarray, y_test: np.ndarray) -> None:
+def output_results(model: tf.keras.Model, X_test: np.ndarray, y_test: np.ndarray, results_path: str) -> None:
     os.makedirs(results_path, exist_ok=True)
 
     y_pred = (model.predict(X_test, verbose=0) > 0.5).astype(int).flatten()
@@ -285,23 +294,36 @@ def output_results(model: tf.keras.Model, X_test: np.ndarray, y_test: np.ndarray
     print(f"\nResults saved to {results_path}/")
 
 
+def run_for_lag(lag: int, train: bool) -> None:
+    print(f"\n{'='*50}")
+    print(f"  Running pipeline for lag = {lag}")
+    print(f"{'='*50}")
+
+    lstm_path, results_path = get_paths(lag)
+
+    X_cv, y_cv, X_test, y_test = load_data(lag)
+
+    X_test_w, y_test_w = create_windows(X_test, y_test, window_size)
+
+    if train:
+        train_crossval(X_cv, y_cv, lstm_path, results_path)
+    else:
+        if not os.path.exists(lstm_path):
+            raise FileNotFoundError(
+                f"No saved model found at {lstm_path}. Run with --train first."
+            )
+
+    model = tf.keras.models.load_model(lstm_path)
+    output_results(model, X_test_w, y_test_w, results_path)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", action="store_true", help="Train with cross-validation")
     args = parser.parse_args()
 
-    X_cv, y_cv, X_test, y_test = load_data()
-
-    X_test_w, y_test_w = create_windows(X_test, y_test, window_size)
-
-    if args.train:
-        train_crossval(X_cv, y_cv)
-    else:
-        if not os.path.exists(lstm_path):
-            raise FileNotFoundError(f"No saved model found at {lstm_path}. Run with --train first.")
-
-    model = tf.keras.models.load_model(lstm_path)
-    output_results(model, X_test_w, y_test_w)
+    for lag in LAGS:
+        run_for_lag(lag, train=args.train)
 
 
 if __name__ == "__main__":
