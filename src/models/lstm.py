@@ -42,8 +42,8 @@ os.environ["TF_DETERMINISTIC_OPS"] = "1"
 
 
 def get_paths(lag: int) -> tuple[str, str]:
-    lstm_path    = f"src/trained/trained_lstm_lag_{lag}/lstm_classification.keras"
-    results_path = f"src/trained/results_lag_{lag}"
+    lstm_path    = f"reports/trained_ltsm/trained_lstm_lag_{lag}/lstm_classification.keras"
+    results_path = f"reports/trained_ltsm/results_lag_{lag}"
     return lstm_path, results_path
 
 

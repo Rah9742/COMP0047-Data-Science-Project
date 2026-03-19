@@ -41,7 +41,18 @@ notebooks/
     univariate/
   04_time_lag_features.ipynb
   05_prediction/
+    logistic/
+    xgboost/
+    patchtst.ipynb
+  06_data_visualisation/
 src/
+  models/
+    lstm.py
+  scripts/
+reports/
+  figures/
+  models/
+  results/
 ```
 
 ## Data Files
@@ -151,10 +162,11 @@ This is where the repo experiments with different definitions of “bull” and 
 
 These notebooks contain classical ML experiments for different horizons:
 
-- `prediction_basecase_1day.ipynb`
-- `prediction_basecase_5days.ipynb`
-- `prediction_basecase_20days.ipynb`
-- `prediction_crossValidation.ipynb`
+- `logistic/prediction_basecase_1day.ipynb`
+- `logistic/prediction_basecase_5days.ipynb`
+- `logistic/prediction_basecase_20days.ipynb`
+- `logistic/prediction_crossValidation.ipynb`
+- `patchtst.ipynb`
 
 From the imports, these notebooks use tools such as:
 
@@ -202,7 +214,7 @@ It does the following:
   - classification reports
   - test metrics
 
-Training output is written under `src/trained/` when the script is run.
+Training output is written under `reports/trained_ltsm/` when the script is run.
 
 ## How To Run
 
