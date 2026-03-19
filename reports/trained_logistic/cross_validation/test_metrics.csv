@@ -1,0 +1,2 @@
+model,target,accuracy,roc_auc,precision,recall,best_threshold
+logistic_regression,regime_binary,0.671913835956918,0.7229357486939413,0.849925705794948,0.6597462514417531,0.3457276507250771
