@@ -13,6 +13,7 @@ def create_cv_dataset() -> pd.DataFrame:
 
     data = pd.read_csv("data/labeled_dataset.csv")
 
+    data['Date'] = pd.to_datetime(data['Date'])
     data['regime_binary']= np.where(data['regime']=='bull',1,0)
     data['Risk_Adj_Return_20d'] = data['Return_20d'] / (data['VIX'] + 0.00001)
     data['SPY_Volume_20d_MA'] = data['SPY Volume'].rolling(window=20).mean()
@@ -20,4 +21,4 @@ def create_cv_dataset() -> pd.DataFrame:
     data['MACD_Hist_Accel'] = data['MACD_Hist'] - data['MACD_Hist'].shift(1)
     data = data.drop(columns=['SPY_Volume_20d_MA']).dropna()
 
-    return data[stationary_features + ['regime_binary']]
+    return data[stationary_features + ['regime_binary', 'Date']]

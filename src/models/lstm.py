@@ -27,12 +27,11 @@ stationary_features = [
     'MACD_Hist_Accel'
 ]
 
-cv_path = "data/cv.csv"
 window_size = 20
 n_features  = len(stationary_features)
 n_splits    = 5
 
-LAGS = [1, 5, 30]
+LAGS = [1, 5, 20]
 
 SEED = 42
 os.environ["PYTHONHASHSEED"] = str(SEED)
@@ -52,24 +51,26 @@ def load_data(lag: int):
 
     lagged_col = f'lagged_target_{lag}'
     data[lagged_col] = data['regime_binary'].shift(-lag)
-    data_x = data.dropna(subset=[lagged_col])
+    data_x = data.dropna(subset=[lagged_col]).reset_index(drop=True)
 
-    X = data_x[stationary_features]
-    y = data_x[lagged_col]
+    X      = data_x[stationary_features]
+    y      = data_x[lagged_col]
+    dates  = data_x['Date']
 
     total_rows = len(data_x)
     val_end    = int(total_rows * 0.85)
 
-    X_cv   = X.iloc[:val_end]
-    y_cv   = y.iloc[:val_end]
-    X_test = X.iloc[val_end:]
-    y_test = y.iloc[val_end:]
+    X_cv       = X.iloc[:val_end]
+    y_cv       = y.iloc[:val_end]
+    X_test     = X.iloc[val_end:]
+    y_test     = y.iloc[val_end:]
+    dates_test = dates.iloc[val_end:]
 
     scaler = StandardScaler()
     scaler.fit(X_cv)
     X_test_scaled = scaler.transform(X_test)
 
-    return X_cv.values, y_cv.values, X_test_scaled, y_test.values
+    return X_cv.values, y_cv.values, X_test_scaled, y_test.values, dates_test.values
 
 
 def create_windows(X: np.ndarray, y: np.ndarray, window_size: int) -> tuple[np.ndarray, np.ndarray]:
@@ -257,10 +258,22 @@ def train_crossval(X_cv: np.ndarray, y_cv: np.ndarray, lstm_path: str, results_p
     save_fold_curves(fold_histories, results_path)
 
 
-def output_results(model: tf.keras.Model, X_test: np.ndarray, y_test: np.ndarray, results_path: str) -> None:
+def output_results(model: tf.keras.Model, X_test: np.ndarray, y_test: np.ndarray,
+                   results_path: str, dates_test: np.ndarray) -> None:
     os.makedirs(results_path, exist_ok=True)
 
-    y_pred = (model.predict(X_test, verbose=0) > 0.5).astype(int).flatten()
+    y_pred_prob = model.predict(X_test, verbose=0).flatten()
+    y_pred      = (y_pred_prob > 0.5).astype(int)
+
+    # Row-level predictions — dates aligned to the last row of each window
+    predictions_df = pd.DataFrame({
+        "date":   dates_test[window_size - 1:],
+        "y_true": y_test.astype(int),
+        "y_pred": y_pred,
+        "y_prob": y_pred_prob,
+    })
+    predictions_df.to_csv(os.path.join(results_path, "predictions.csv"), index=False)
+    print(f"Row-level predictions saved to {results_path}/predictions.csv")
 
     cm = confusion_matrix(y_test, y_pred)
     plt.figure(figsize=(6, 5))
@@ -301,7 +314,7 @@ def run_for_lag(lag: int, train: bool) -> None:
 
     lstm_path, results_path = get_paths(lag)
 
-    X_cv, y_cv, X_test, y_test = load_data(lag)
+    X_cv, y_cv, X_test, y_test, dates_test = load_data(lag)
 
     X_test_w, y_test_w = create_windows(X_test, y_test, window_size)
 
@@ -314,7 +327,7 @@ def run_for_lag(lag: int, train: bool) -> None:
             )
 
     model = tf.keras.models.load_model(lstm_path)
-    output_results(model, X_test_w, y_test_w, results_path)
+    output_results(model, X_test_w, y_test_w, results_path, dates_test)
 
 
 def main():
