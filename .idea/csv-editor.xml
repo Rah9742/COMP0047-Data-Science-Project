@@ -17,7 +17,49 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="/reports/trained_logistic/basecase_1day/predictions.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="/reports/trained_logistic/basecase_1day/validation_metrics.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
         <entry key="/reports/trained_logistic/cross_validation/confusion_matrix.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="/reports/trained_xgboost/basecase_1day/confusion_matrix.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="/reports/trained_xgboost/basecase_20days/confusion_matrix.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="/reports/trained_xgboost/basecase_5days/confusion_matrix.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="/reports/trained_xgboost/cross_validation_1day/predictions.csv">
           <value>
             <Attribute>
               <option name="separator" value="," />

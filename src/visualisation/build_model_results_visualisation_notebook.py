@@ -17,13 +17,14 @@ nb.cells = [
         """
         # Model Results Visualisation
 
-        This notebook consolidates the exported artifacts under `reports/` into static, report-ready figures.
+        This notebook consolidates the aligned `1day`, `5days`, and `20days` forecasting outputs for:
+        - Logistic regression
+        - XGBoost
+        - PatchTST
+        - LSTM
 
-        Notes:
-        - Logistic and XGBoost basecase outputs are validation results.
-        - PatchTST forecasting outputs are test results.
-        - LSTM outputs are reported separately because the longest horizon is `30days`, not `20days`.
-        - Cross-validation diagnostics are shown separately from the basecase forecasting views.
+        It reads the exported artifacts under `reports/` and writes refreshed static figures to
+        `reports/figures/model_results_visualisation/`.
         """
     ),
     code(
@@ -57,13 +58,14 @@ nb.cells = [
         FIGURES_DIR = REPORTS_DIR / "figures" / "model_results_visualisation"
         FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
+        HORIZONS = ["1day", "5days", "20days"]
+        MODEL_ORDER = ["Logistic", "XGBoost", "PatchTST", "LSTM"]
         MODEL_COLORS = {
             "Logistic": "#355C7D",
             "XGBoost": "#C06C84",
             "PatchTST": "#F67280",
             "LSTM": "#6C5B7B",
         }
-        HORIZON_ORDER = ["1day", "5days", "20days", "30days"]
 
 
         def save_current_figure(name: str) -> Path:
@@ -74,175 +76,133 @@ nb.cells = [
     ),
     code(
         """
-        def load_prediction_metrics(path: Path, model_name: str, split: str, horizon: str) -> dict:
-            df = pd.read_csv(path)
-            return {
-                "model": model_name,
-                "split": split,
-                "horizon": horizon,
-                "accuracy": accuracy_score(df["y_true"], df["y_pred"]),
-                "precision": precision_score(df["y_true"], df["y_pred"], zero_division=0),
-                "recall": recall_score(df["y_true"], df["y_pred"], zero_division=0),
-                "f1_score": f1_score(df["y_true"], df["y_pred"], zero_division=0),
-                "roc_auc": roc_auc_score(df["y_true"], df["y_pred_prob"]),
-            }
-
-
-        def load_basecase_metrics() -> pd.DataFrame:
-            records = []
-            logistic_root = REPORTS_DIR / "trained_logistic"
-            xgboost_root = REPORTS_DIR / "trained_xgboost"
-            patchtst_root = REPORTS_DIR / "trained_patchtst"
-
-            for horizon in ["1day", "5days", "20days"]:
-                records.append(
-                    load_prediction_metrics(
-                        logistic_root / f"basecase_{horizon}" / "predictions.csv",
-                        model_name="Logistic",
-                        split="validation",
-                        horizon=horizon,
-                    )
-                )
-                records.append(
-                    load_prediction_metrics(
-                        xgboost_root / f"basecase_{horizon}" / "predictions.csv",
-                        model_name="XGBoost",
-                        split="validation",
-                        horizon=horizon,
-                    )
-                )
-
-            patchtst_map = {
-                "1day": patchtst_root / "results_lag_1" / "predictions.csv",
-                "5days": patchtst_root / "results_lag_5" / "predictions.csv",
-                "20days": patchtst_root / "results_lag_20" / "predictions.csv",
-            }
-            for horizon, path in patchtst_map.items():
-                records.append(
-                    load_prediction_metrics(
-                        path,
-                        model_name="PatchTST",
-                        split="test",
-                        horizon=horizon,
-                    )
-                )
-
-            df = pd.DataFrame(records)
-            df["horizon"] = pd.Categorical(df["horizon"], categories=HORIZON_ORDER, ordered=True)
-            return df.sort_values(["horizon", "model"]).reset_index(drop=True)
-
-
-        def load_basecase_predictions(horizon: str) -> pd.DataFrame:
-            frames = []
-            specs = [
-                ("Logistic", "validation", REPORTS_DIR / "trained_logistic" / f"basecase_{horizon}" / "predictions.csv"),
-                ("XGBoost", "validation", REPORTS_DIR / "trained_xgboost" / f"basecase_{horizon}" / "predictions.csv"),
-            ]
-            patchtst_lookup = {
+        PREDICTION_SPECS = {
+            "Logistic": {
+                "1day": REPORTS_DIR / "trained_logistic" / "basecase_1day" / "predictions.csv",
+                "5days": REPORTS_DIR / "trained_logistic" / "basecase_5days" / "predictions.csv",
+                "20days": REPORTS_DIR / "trained_logistic" / "basecase_20days" / "predictions.csv",
+            },
+            "XGBoost": {
+                "1day": REPORTS_DIR / "trained_xgboost" / "basecase_1day" / "predictions.csv",
+                "5days": REPORTS_DIR / "trained_xgboost" / "basecase_5days" / "predictions.csv",
+                "20days": REPORTS_DIR / "trained_xgboost" / "basecase_20days" / "predictions.csv",
+            },
+            "PatchTST": {
                 "1day": REPORTS_DIR / "trained_patchtst" / "results_lag_1" / "predictions.csv",
                 "5days": REPORTS_DIR / "trained_patchtst" / "results_lag_5" / "predictions.csv",
                 "20days": REPORTS_DIR / "trained_patchtst" / "results_lag_20" / "predictions.csv",
-            }
-            specs.append(("PatchTST", "test", patchtst_lookup[horizon]))
+            },
+            "LSTM": {
+                "1day": REPORTS_DIR / "trained_ltsm" / "results_lag_1" / "predictions.csv",
+                "5days": REPORTS_DIR / "trained_ltsm" / "results_lag_5" / "predictions.csv",
+                "20days": REPORTS_DIR / "trained_ltsm" / "results_lag_20" / "predictions.csv",
+            },
+        }
 
-            for model_name, split, path in specs:
-                df = pd.read_csv(path)
-                df["Date"] = pd.to_datetime(df["Date"])
-                df["model"] = model_name
-                df["split"] = split
-                df["horizon"] = horizon
-                frames.append(df)
-            return pd.concat(frames, ignore_index=True)
-
-
-        def load_cross_validation_results():
-            test_records = []
-            fold_records = []
-            for model_name, folder in [("Logistic", "trained_logistic"), ("XGBoost", "trained_xgboost")]:
-                test_path = REPORTS_DIR / folder / "cross_validation" / "test_metrics.csv"
-                cv_path = REPORTS_DIR / folder / "cross_validation" / "cv_summary.csv"
-
-                test_df = pd.read_csv(test_path).rename(columns={"best_threshold": "threshold"})
-                test_df["model"] = model_name
-                test_records.append(test_df)
-
-                cv_df = pd.read_csv(cv_path)
-                cv_df["model"] = model_name
-                cv_df["row_type"] = "fold"
-                if len(cv_df) >= 2:
-                    cv_df.loc[cv_df.index[-2], "row_type"] = "mean"
-                    cv_df.loc[cv_df.index[-1], "row_type"] = "std"
-                fold_records.append(cv_df)
-
-            test_results = pd.concat(test_records, ignore_index=True)
-            cv_results = pd.concat(fold_records, ignore_index=True)
-            return test_results, cv_results
+        SPLIT_LABELS = {
+            "Logistic": "validation",
+            "XGBoost": "validation",
+            "PatchTST": "test",
+            "LSTM": "test",
+        }
 
 
-        def load_lstm_results():
-            records = []
-            cv_records = []
-            for lag, horizon in [(1, "1day"), (5, "5days"), (30, "30days")]:
-                test_path = REPORTS_DIR / "trained_ltsm" / f"results_lag_{lag}" / "test_metrics.csv"
-                cv_path = REPORTS_DIR / "trained_ltsm" / f"results_lag_{lag}" / "cv_summary.csv"
+        def normalise_prediction_frame(df: pd.DataFrame, model: str, horizon: str) -> pd.DataFrame:
+            frame = df.copy()
 
-                test_df = pd.read_csv(test_path).rename(columns={"Unnamed: 0": "split_name"})
-                row = test_df.iloc[0].to_dict()
-                row["model"] = "LSTM"
-                row["split"] = "test"
-                row["horizon"] = horizon
-                records.append(row)
+            rename_map = {}
+            if "date" in frame.columns:
+                rename_map["date"] = "Date"
+            if "y_prob" in frame.columns:
+                rename_map["y_prob"] = "y_pred_prob"
+            frame = frame.rename(columns=rename_map)
 
-                cv_df = pd.read_csv(cv_path).rename(columns={"Unnamed: 0": "fold"})
-                cv_df["model"] = "LSTM"
-                cv_df["horizon"] = horizon
-                cv_records.append(cv_df)
+            required = ["Date", "y_true", "y_pred", "y_pred_prob"]
+            missing = [col for col in required if col not in frame.columns]
+            if missing:
+                raise KeyError(f"{model} {horizon} missing columns: {missing}")
 
-            lstm_test = pd.DataFrame(records)
-            lstm_test["horizon"] = pd.Categorical(lstm_test["horizon"], categories=HORIZON_ORDER, ordered=True)
-            lstm_cv = pd.concat(cv_records, ignore_index=True)
-            return lstm_test.sort_values("horizon").reset_index(drop=True), lstm_cv
+            frame["Date"] = pd.to_datetime(frame["Date"])
+            frame["model"] = model
+            frame["horizon"] = horizon
+            frame["split"] = SPLIT_LABELS[model]
+            return frame[["Date", "y_true", "y_pred", "y_pred_prob", "model", "split", "horizon"]]
+
+
+        def load_all_predictions() -> pd.DataFrame:
+            frames = []
+            for model, horizon_map in PREDICTION_SPECS.items():
+                for horizon, path in horizon_map.items():
+                    df = pd.read_csv(path)
+                    frames.append(normalise_prediction_frame(df, model=model, horizon=horizon))
+
+            combined = pd.concat(frames, ignore_index=True)
+            combined["horizon"] = pd.Categorical(combined["horizon"], categories=HORIZONS, ordered=True)
+            combined["model"] = pd.Categorical(combined["model"], categories=MODEL_ORDER, ordered=True)
+            return combined.sort_values(["horizon", "model", "Date"]).reset_index(drop=True)
+
+
+        def summarise_metrics(predictions: pd.DataFrame) -> pd.DataFrame:
+            rows = []
+            for (model, horizon, split), df in predictions.groupby(["model", "horizon", "split"], observed=True):
+                rows.append(
+                    {
+                        "model": model,
+                        "horizon": horizon,
+                        "split": split,
+                        "accuracy": accuracy_score(df["y_true"], df["y_pred"]),
+                        "precision": precision_score(df["y_true"], df["y_pred"], zero_division=0),
+                        "recall": recall_score(df["y_true"], df["y_pred"], zero_division=0),
+                        "f1_score": f1_score(df["y_true"], df["y_pred"], zero_division=0),
+                        "roc_auc": roc_auc_score(df["y_true"], df["y_pred_prob"]),
+                        "rows": len(df),
+                        "start_date": df["Date"].min(),
+                        "end_date": df["Date"].max(),
+                    }
+                )
+            metrics = pd.DataFrame(rows)
+            metrics["horizon"] = pd.Categorical(metrics["horizon"], categories=HORIZONS, ordered=True)
+            metrics["model"] = pd.Categorical(metrics["model"], categories=MODEL_ORDER, ordered=True)
+            return metrics.sort_values(["horizon", "model"]).reset_index(drop=True)
+
+
+        def load_cross_validation_artifacts():
+            logistic_test = pd.read_csv(REPORTS_DIR / "trained_logistic" / "cross_validation" / "test_metrics.csv")
+            logistic_test["model"] = "Logistic"
+            logistic_test["horizon"] = "1day"
+
+            logistic_cv = pd.read_csv(REPORTS_DIR / "trained_logistic" / "cross_validation" / "cv_summary.csv")
+            logistic_cv["model"] = "Logistic"
+            logistic_cv["horizon"] = "1day"
+
+            xgb_test = pd.read_csv(REPORTS_DIR / "trained_xgboost" / "cross_validation_1day" / "test_metrics.csv")
+            xgb_test["model"] = "XGBoost"
+            xgb_test["horizon"] = "1day"
+
+            xgb_grid = pd.read_csv(REPORTS_DIR / "trained_xgboost" / "cross_validation_1day" / "cv_summary.csv")
+            xgb_grid["model"] = "XGBoost"
+            xgb_grid["horizon"] = "1day"
+
+            return logistic_test, logistic_cv, xgb_test, xgb_grid
 
 
         def load_training_curves():
-            xgboost_frames = []
-            for horizon in ["1day", "5days", "20days"]:
-                path = REPORTS_DIR / "trained_xgboost" / f"basecase_{horizon}" / "learning_curve.csv"
-                df = pd.read_csv(path)
+            xgb_frames = []
+            for horizon in HORIZONS:
+                df = pd.read_csv(REPORTS_DIR / "trained_xgboost" / f"basecase_{horizon}" / "learning_curve.csv")
                 df["model"] = "XGBoost"
                 df["horizon"] = horizon
-                xgboost_frames.append(df)
+                xgb_frames.append(df)
 
-            patchtst_frames = []
+            patch_frames = []
             lag_map = {"1day": "results_lag_1", "5days": "results_lag_5", "20days": "results_lag_20"}
             for horizon, folder in lag_map.items():
-                path = REPORTS_DIR / "trained_patchtst" / folder / "training_history.csv"
-                df = pd.read_csv(path)
+                df = pd.read_csv(REPORTS_DIR / "trained_patchtst" / folder / "training_history.csv")
                 df["model"] = "PatchTST"
                 df["horizon"] = horizon
-                patchtst_frames.append(df)
+                patch_frames.append(df)
 
-            return pd.concat(xgboost_frames, ignore_index=True), pd.concat(patchtst_frames, ignore_index=True)
-
-
-        def plot_image_grid(image_paths, titles, ncols=3, figsize=(15, 12)):
-            n_images = len(image_paths)
-            nrows = math.ceil(n_images / ncols)
-            fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
-            axes = np.atleast_1d(axes).ravel()
-            for ax, path, title in zip(axes, image_paths, titles):
-                if Path(path).exists():
-                    img = mpimg.imread(path)
-                    ax.imshow(img)
-                    ax.set_title(title)
-                    ax.axis("off")
-                else:
-                    ax.text(0.5, 0.5, f"Missing\\n{Path(path).name}", ha="center", va="center")
-                    ax.set_title(title)
-                    ax.axis("off")
-            for ax in axes[n_images:]:
-                ax.axis("off")
-            return fig
+            return pd.concat(xgb_frames, ignore_index=True), pd.concat(patch_frames, ignore_index=True)
 
 
         def draw_confusion_artifact(ax, title: str, csv_path: Path | None = None, image_path: Path | None = None):
@@ -266,43 +226,50 @@ nb.cells = [
             ax.axis("off")
 
 
-        basecase_metrics = load_basecase_metrics()
-        crossval_test, crossval_folds = load_cross_validation_results()
-        lstm_test, lstm_cv = load_lstm_results()
+        predictions = load_all_predictions()
+        metrics = summarise_metrics(predictions)
+        logistic_cv_test, logistic_cv_folds, xgb_cv_test, xgb_cv_grid = load_cross_validation_artifacts()
         xgb_learning_curves, patchtst_training = load_training_curves()
 
-        display(basecase_metrics)
-        display(crossval_test)
-        display(lstm_test[["horizon", "accuracy", "roc_auc", "precision", "recall"]])
+        display(metrics)
         """
     ),
     md(
         """
-        ## Basecase Forecasting Metrics
+        ## Unified Forecast Metrics
 
-        This view compares the standardized exports for the three forecasting families that already provide horizon-specific prediction files:
-        Logistic, XGBoost, and PatchTST.
-
-        Because the exported evaluation split is not identical across every model family, the plot keeps the split in the legend labels.
+        These metrics are recomputed directly from the exported `predictions.csv` files so that all four model
+        families are summarised in one consistent table.
         """
     ),
     code(
         """
-        plot_df = basecase_metrics.copy()
-        plot_df["label"] = plot_df["model"] + " (" + plot_df["split"] + ")"
-        metric_order = ["accuracy", "precision", "recall", "roc_auc"]
-        fig, axes = plt.subplots(2, 2, figsize=(16, 11), sharex=True)
+        summary_cols = ["model", "split", "horizon", "accuracy", "precision", "recall", "f1_score", "roc_auc", "rows", "start_date", "end_date"]
+        display(metrics[summary_cols].style.format({col: "{:.3f}" for col in ["accuracy", "precision", "recall", "f1_score", "roc_auc"]}))
+        """
+    ),
+    code(
+        """
+        plot_df = metrics.melt(
+            id_vars=["model", "horizon", "split"],
+            value_vars=["accuracy", "precision", "recall", "roc_auc"],
+            var_name="metric",
+            value_name="value",
+        )
 
-        for ax, metric in zip(axes.flat, metric_order):
+        fig, axes = plt.subplots(2, 2, figsize=(16, 11), sharex=True, sharey=True)
+        for ax, metric_name in zip(axes.flat, ["accuracy", "precision", "recall", "roc_auc"]):
+            subset = plot_df[plot_df["metric"] == metric_name]
             sns.barplot(
-                data=plot_df,
+                data=subset,
                 x="horizon",
-                y=metric,
-                hue="label",
-                palette=["#355C7D", "#C06C84", "#F67280"],
+                y="value",
+                hue="model",
+                hue_order=MODEL_ORDER,
+                palette=MODEL_COLORS,
                 ax=ax,
             )
-            ax.set_title(metric.replace("_", " ").title())
+            ax.set_title(metric_name.replace("_", " ").title())
             ax.set_xlabel("")
             ax.set_ylabel("Score")
             ax.set_ylim(0, 1.0)
@@ -311,108 +278,77 @@ nb.cells = [
             else:
                 ax.get_legend().remove()
 
-        fig.suptitle("Basecase Forecasting Metrics by Horizon", y=1.02, fontsize=18)
-        fig.text(0.5, -0.01, "Logistic/XGBoost are validation outputs; PatchTST is a test output.", ha="center", fontsize=11)
+        fig.suptitle("Forecast Metrics Across Aligned Horizons", y=1.02, fontsize=18)
+        fig.text(0.5, -0.01, "Logistic/XGBoost use validation exports; PatchTST/LSTM use test exports.", ha="center", fontsize=11)
         plt.tight_layout()
-        save_current_figure("basecase_forecasting_metrics.png")
+        save_current_figure("aligned_forecast_metrics.png")
         plt.show()
-        """
-    ),
-    code(
-        """
-        summary_table = (
-            basecase_metrics[["model", "split", "horizon", "accuracy", "precision", "recall", "f1_score", "roc_auc"]]
-            .sort_values(["horizon", "model"])
-            .reset_index(drop=True)
-        )
-        display(summary_table.style.format({col: "{:.3f}" for col in ["accuracy", "precision", "recall", "f1_score", "roc_auc"]}))
         """
     ),
     md(
         """
-        ## 1-Day Prediction Probability Timelines
+        ## Horizon-Wise Probability Timelines
 
-        These charts make it easier to inspect calibration and regime flips over time than the saved single-model PNGs alone.
+        To make the outputs easier to compare, the plots below use the same format for all four model families.
+        Each panel shows the last 180 rows of the exported prediction period for one horizon.
         """
     ),
     code(
         """
-        pred_1d = load_basecase_predictions("1day")
-        fig, axes = plt.subplots(3, 1, figsize=(16, 10), sharex=False)
+        fig, axes = plt.subplots(len(HORIZONS), 1, figsize=(16, 13), sharex=False)
+        if len(HORIZONS) == 1:
+            axes = [axes]
 
-        for ax, model_name in zip(axes, ["Logistic", "XGBoost", "PatchTST"]):
-            df = pred_1d[pred_1d["model"] == model_name].sort_values("Date").tail(200)
-            ax.plot(df["Date"], df["y_pred_prob"], color=MODEL_COLORS[model_name], linewidth=2, label="Predicted bull probability")
-            ax.plot(df["Date"], df["y_true"], color="#222222", linewidth=1.4, alpha=0.7, label="True regime")
+        for ax, horizon in zip(axes, HORIZONS):
+            subset = predictions[predictions["horizon"] == horizon].copy()
+            for model in MODEL_ORDER:
+                df = subset[subset["model"] == model].sort_values("Date").tail(180)
+                ax.plot(df["Date"], df["y_pred_prob"], label=model, color=MODEL_COLORS[model], linewidth=2)
+
+            truth = subset[subset["model"] == "Logistic"].sort_values("Date").tail(180)
+            ax.plot(truth["Date"], truth["y_true"], color="#111111", alpha=0.35, linewidth=1.4, label="True regime")
             ax.axhline(0.5, color="#888888", linestyle="--", linewidth=1)
             ax.set_ylim(-0.05, 1.05)
-            ax.set_title(f"{model_name} 1-day forecast")
-            ax.set_ylabel("Probability / label")
-            ax.legend(loc="upper left")
+            ax.set_title(f"{horizon} predicted bull probability")
+            ax.set_ylabel("Probability")
+            ax.legend(ncol=5, fontsize=9, loc="upper left")
 
         axes[-1].set_xlabel("Date")
-        fig.suptitle("1-Day Regime Prediction Timelines", y=1.02, fontsize=18)
+        fig.suptitle("Prediction Timelines by Horizon", y=1.01, fontsize=18)
         plt.tight_layout()
-        save_current_figure("prediction_timelines_1day.png")
+        save_current_figure("prediction_timelines_by_horizon.png")
         plt.show()
         """
     ),
     md(
         """
-        ## Cross-Validation Benchmarks
+        ## Model Ranking by Horizon
 
-        These are the standardized exports from `prediction_crossValidation.ipynb`, shown separately from the basecase horizon notebooks.
+        This view focuses on the strongest headline metric for classification quality.
         """
     ),
     code(
         """
-        metric_order = ["accuracy", "roc_auc", "precision", "recall"]
-        fig, axes = plt.subplots(1, 4, figsize=(18, 4.8))
-
-        for ax, metric in zip(axes, metric_order):
+        fig, axes = plt.subplots(1, 3, figsize=(17, 4.8), sharey=True)
+        for ax, horizon in zip(axes, HORIZONS):
+            subset = metrics[metrics["horizon"] == horizon].sort_values("roc_auc", ascending=True)
             sns.barplot(
-                data=crossval_test,
-                x="model",
-                y=metric,
+                data=subset,
+                x="roc_auc",
+                y="model",
                 hue="model",
+                hue_order=MODEL_ORDER,
                 palette=MODEL_COLORS,
                 legend=False,
                 ax=ax,
             )
-            ax.set_title(metric.replace("_", " ").title())
-            ax.set_xlabel("")
-            ax.set_ylabel("Score")
-            ax.set_ylim(0, 1.0)
-
-        fig.suptitle("Cross-Validation Held-Out Test Metrics", y=1.08, fontsize=18)
-        plt.tight_layout()
-        save_current_figure("cross_validation_test_metrics.png")
-        plt.show()
-        """
-    ),
-    code(
-        """
-        fold_only = crossval_folds[crossval_folds["row_type"] == "fold"].copy()
-        fold_only["fold"] = fold_only["fold"].astype(int)
-
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
-        for ax, metric in zip(axes, ["accuracy", "roc_auc"]):
-            sns.lineplot(
-                data=fold_only,
-                x="fold",
-                y=metric,
-                hue="model",
-                marker="o",
-                palette=MODEL_COLORS,
-                ax=ax,
-            )
-            ax.set_title(f"Fold-level {metric.replace('_', ' ').title()}")
-            ax.set_xlabel("Fold")
-            ax.set_ylabel("Score")
-            ax.set_ylim(0, 1.0)
+            ax.set_title(f"{horizon} ROC-AUC")
+            ax.set_xlabel("ROC-AUC")
+            ax.set_ylabel("")
+            ax.set_xlim(0, 1.0)
 
         plt.tight_layout()
-        save_current_figure("cross_validation_fold_metrics.png")
+        save_current_figure("roc_auc_ranking_by_horizon.png")
         plt.show()
         """
     ),
@@ -420,7 +356,7 @@ nb.cells = [
         """
         ## 1-Day Feature Signal Views
 
-        For the linear and tree baselines, the exported coefficients and feature importances are useful static views to pair with the model metrics.
+        The linear and tree baselines still benefit from a direct feature-level readout.
         """
     ),
     code(
@@ -435,12 +371,12 @@ nb.cells = [
 
         fig, axes = plt.subplots(1, 2, figsize=(16, 7))
         sns.barplot(data=logistic_top, x="coefficient", y="feature", color=MODEL_COLORS["Logistic"], ax=axes[0])
-        axes[0].set_title("Logistic 1-day: strongest coefficients")
+        axes[0].set_title("Logistic 1-day coefficients")
         axes[0].set_xlabel("Coefficient")
         axes[0].set_ylabel("")
 
         sns.barplot(data=xgb_top, x="importance", y="feature", color=MODEL_COLORS["XGBoost"], ax=axes[1])
-        axes[1].set_title("XGBoost 1-day: top feature importances")
+        axes[1].set_title("XGBoost 1-day feature importance")
         axes[1].set_xlabel("Importance")
         axes[1].set_ylabel("")
 
@@ -451,22 +387,21 @@ nb.cells = [
     ),
     md(
         """
-        ## Training Dynamics
+        ## Training Diagnostics
 
-        The forecasting notebooks now export enough artifact data to compare how the tree and transformer-style models trained over time.
+        Only XGBoost and PatchTST currently export training-curve style artifacts in a structured CSV format.
         """
     ),
     code(
         """
         fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-
-        for idx, horizon in enumerate(["1day", "5days", "20days"]):
+        for idx, horizon in enumerate(HORIZONS):
             xgb_df = xgb_learning_curves[xgb_learning_curves["horizon"] == horizon]
             patch_df = patchtst_training[patchtst_training["horizon"] == horizon]
 
             ax = axes[0, idx]
-            ax.plot(xgb_df["iteration"], xgb_df["train_logloss"], label="Train", color="#355C7D")
-            ax.plot(xgb_df["iteration"], xgb_df["val_logloss"], label="Validation", color="#C06C84")
+            ax.plot(xgb_df["iteration"], xgb_df["train_logloss"], label="Train", color=MODEL_COLORS["Logistic"])
+            ax.plot(xgb_df["iteration"], xgb_df["val_logloss"], label="Validation", color=MODEL_COLORS["XGBoost"])
             ax.set_title(f"XGBoost {horizon}")
             ax.set_xlabel("Iteration")
             ax.set_ylabel("Log loss")
@@ -474,71 +409,81 @@ nb.cells = [
                 ax.legend()
 
             ax = axes[1, idx]
-            ax.plot(patch_df["epoch"], patch_df["train_loss"], label="Train loss", color="#F67280")
+            ax.plot(patch_df["epoch"], patch_df["train_loss"], label="Train loss", color=MODEL_COLORS["PatchTST"])
             ax2 = ax.twinx()
-            ax2.plot(patch_df["epoch"], patch_df["val_auc"], label="Validation AUC", color="#6C5B7B")
+            ax2.plot(patch_df["epoch"], patch_df["val_auc"], label="Validation AUC", color=MODEL_COLORS["LSTM"])
             ax.set_title(f"PatchTST {horizon}")
             ax.set_xlabel("Epoch")
             ax.set_ylabel("Train loss")
             ax2.set_ylabel("Validation AUC")
 
-        fig.suptitle("Training Dynamics by Horizon", y=1.02, fontsize=18)
+        fig.suptitle("Training Diagnostics by Horizon", y=1.02, fontsize=18)
         plt.tight_layout()
-        save_current_figure("training_dynamics.png")
+        save_current_figure("training_diagnostics.png")
         plt.show()
         """
     ),
     md(
         """
-        ## LSTM Summary
+        ## Cross-Validation Artifacts
 
-        LSTM is kept separate because its exported horizons are `1day`, `5days`, and `30days`, and it currently ships metrics/PNG artifacts rather than prediction-level CSVs.
+        Logistic regression still exports fold-level cross-validation metrics. The current XGBoost export for
+        `1day` is a grid-search summary, so it is shown separately rather than forced into a fold chart.
         """
     ),
     code(
         """
-        cv_mean = lstm_cv.iloc[[-2]].copy()
-        cv_mean["fold"] = "Mean"
-        cv_mean["horizon"] = pd.Categorical(cv_mean["horizon"], categories=HORIZON_ORDER, ordered=True)
+        logistic_cv_plot = logistic_cv_folds.copy()
+        logistic_cv_plot["fold"] = pd.to_numeric(logistic_cv_plot["fold"], errors="coerce")
+        logistic_cv_plot = logistic_cv_plot.dropna(subset=["fold"]).copy()
+        logistic_cv_plot["fold"] = logistic_cv_plot["fold"].astype(int)
 
-        test_long = lstm_test.melt(
-            id_vars=["model", "split", "horizon", "split_name"],
-            value_vars=["accuracy", "roc_auc", "precision", "recall"],
-            var_name="metric",
-            value_name="value",
-        )
-        cv_long = cv_mean.melt(
-            id_vars=["model", "horizon", "fold"],
-            value_vars=["accuracy", "roc_auc", "precision", "recall"],
-            var_name="metric",
-            value_name="value",
-        )
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
-        fig, axes = plt.subplots(1, 2, figsize=(16, 5.5), sharey=True)
-        sns.barplot(data=test_long, x="horizon", y="value", hue="metric", ax=axes[0])
-        axes[0].set_title("LSTM held-out test metrics")
+        sns.barplot(
+            data=pd.concat([logistic_cv_test, xgb_cv_test], ignore_index=True),
+            x="model",
+            y="roc_auc",
+            hue="model",
+            palette=MODEL_COLORS,
+            legend=False,
+            ax=axes[0],
+        )
+        axes[0].set_title("1-day CV held-out ROC-AUC")
         axes[0].set_xlabel("")
-        axes[0].set_ylabel("Score")
+        axes[0].set_ylabel("ROC-AUC")
         axes[0].set_ylim(0, 1.0)
 
-        sns.barplot(data=cv_long, x="horizon", y="value", hue="metric", ax=axes[1])
-        axes[1].set_title("LSTM cross-validation mean metrics")
-        axes[1].set_xlabel("")
-        axes[1].set_ylabel("")
+        sns.lineplot(
+            data=logistic_cv_plot,
+            x="fold",
+            y="accuracy",
+            marker="o",
+            color=MODEL_COLORS["Logistic"],
+            ax=axes[1],
+        )
+        axes[1].set_title("Logistic fold accuracy")
+        axes[1].set_xlabel("Fold")
+        axes[1].set_ylabel("Accuracy")
         axes[1].set_ylim(0, 1.0)
 
-        axes[1].legend(title="")
-        axes[0].legend(title="")
+        xgb_grid_top = xgb_cv_grid.sort_values("mean_test_score", ascending=False).head(8).copy()
+        xgb_grid_top["label"] = [f"Rank {rank}" for rank in xgb_grid_top["rank_test_score"]]
+        sns.barplot(data=xgb_grid_top, x="mean_test_score", y="label", color=MODEL_COLORS["XGBoost"], ax=axes[2])
+        axes[2].set_title("XGBoost grid-search top scores")
+        axes[2].set_xlabel("Mean CV score")
+        axes[2].set_ylabel("")
+
         plt.tight_layout()
-        save_current_figure("lstm_metric_summary.png")
+        save_current_figure("cross_validation_overview.png")
         plt.show()
         """
     ),
     md(
         """
-        ## Saved Artifact Galleries
+        ## Confusion Matrix Gallery
 
-        These grids reuse the exported PNGs so the report notebook can quickly surface the original single-model diagnostics without rerunning training.
+        The forecasting artifacts are now aligned enough that the confusion matrices can be shown in a single grid.
         """
     ),
     code(
@@ -555,7 +500,7 @@ nb.cells = [
             ("PatchTST 20-day", REPORTS_DIR / "trained_patchtst" / "results_lag_20" / "confusion_matrix.csv", None),
             ("LSTM 1-day", None, REPORTS_DIR / "trained_ltsm" / "results_lag_1" / "confusion_matrix.png"),
             ("LSTM 5-day", None, REPORTS_DIR / "trained_ltsm" / "results_lag_5" / "confusion_matrix.png"),
-            ("LSTM 30-day", None, REPORTS_DIR / "trained_ltsm" / "results_lag_30" / "confusion_matrix.png"),
+            ("LSTM 20-day", None, REPORTS_DIR / "trained_ltsm" / "results_lag_20" / "confusion_matrix.png"),
         ]
 
         fig, axes = plt.subplots(4, 3, figsize=(16, 18))
@@ -568,27 +513,37 @@ nb.cells = [
         plt.show()
         """
     ),
+    md(
+        """
+        ## Saved Diagnostic Gallery
+
+        These are the original exported single-model diagnostic views, preserved here as a quick report appendix.
+        """
+    ),
     code(
         """
-        lstm_curve_paths = [
-            REPORTS_DIR / "trained_ltsm" / "results_lag_1" / "training_curves.png",
-            REPORTS_DIR / "trained_ltsm" / "results_lag_5" / "training_curves.png",
-            REPORTS_DIR / "trained_ltsm" / "results_lag_30" / "training_curves.png",
-            REPORTS_DIR / "trained_patchtst" / "results_lag_1" / "prediction_visualisation.png",
-            REPORTS_DIR / "trained_patchtst" / "results_lag_5" / "prediction_visualisation.png",
-            REPORTS_DIR / "trained_patchtst" / "results_lag_20" / "prediction_visualisation.png",
-        ]
-        lstm_curve_titles = [
-            "LSTM 1-day training curves",
-            "LSTM 5-day training curves",
-            "LSTM 30-day training curves",
-            "PatchTST 1-day prediction view",
-            "PatchTST 5-day prediction view",
-            "PatchTST 20-day prediction view",
+        image_specs = [
+            ("Logistic 1-day timeline", REPORTS_DIR / "trained_logistic" / "basecase_1day" / "prediction_timeline.png"),
+            ("XGBoost 1-day timeline", REPORTS_DIR / "trained_xgboost" / "basecase_1day" / "prediction_timeline.png"),
+            ("PatchTST 1-day prediction view", REPORTS_DIR / "trained_patchtst" / "results_lag_1" / "prediction_visualisation.png"),
+            ("LSTM 1-day training curves", REPORTS_DIR / "trained_ltsm" / "results_lag_1" / "training_curves.png"),
+            ("PatchTST 5-day prediction view", REPORTS_DIR / "trained_patchtst" / "results_lag_5" / "prediction_visualisation.png"),
+            ("LSTM 20-day training curves", REPORTS_DIR / "trained_ltsm" / "results_lag_20" / "training_curves.png"),
         ]
 
-        plot_image_grid(lstm_curve_paths, lstm_curve_titles, ncols=3, figsize=(16, 10))
-        plt.suptitle("Saved Diagnostic Figures", y=1.02, fontsize=18)
+        fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+        for ax, (title, image_path) in zip(axes.ravel(), image_specs):
+            if image_path.exists():
+                img = mpimg.imread(image_path)
+                ax.imshow(img)
+                ax.set_title(title)
+                ax.axis("off")
+            else:
+                ax.text(0.5, 0.5, "Missing artifact", ha="center", va="center")
+                ax.set_title(title)
+                ax.axis("off")
+
+        plt.suptitle("Saved Diagnostic Gallery", y=1.02, fontsize=18)
         plt.tight_layout()
         save_current_figure("saved_diagnostic_gallery.png")
         plt.show()
