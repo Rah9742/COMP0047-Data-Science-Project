@@ -1,0 +1,2 @@
+model,split,horizon,accuracy,precision,recall,f1_score,threshold
+logistic_regression,test,20days,0.2821576763485477,0.0,0.0,0.0,0.95
