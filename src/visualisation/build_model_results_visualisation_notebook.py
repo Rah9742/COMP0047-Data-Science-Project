@@ -38,7 +38,7 @@ nb.cells = [
         import pandas as pd
         import seaborn as sns
         from IPython.display import display
-        from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+        from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef, precision_score, recall_score, roc_auc_score
 
         sns.set_theme(style="whitegrid", context="talk")
         plt.rcParams["figure.dpi"] = 140
@@ -153,6 +153,7 @@ nb.cells = [
                         "precision": precision_score(df["y_true"], df["y_pred"], zero_division=0),
                         "recall": recall_score(df["y_true"], df["y_pred"], zero_division=0),
                         "f1_score": f1_score(df["y_true"], df["y_pred"], zero_division=0),
+                        "mcc": matthews_corrcoef(df["y_true"], df["y_pred"]),
                         "roc_auc": roc_auc_score(df["y_true"], df["y_pred_prob"]),
                         "rows": len(df),
                         "start_date": df["Date"].min(),
@@ -267,21 +268,22 @@ nb.cells = [
     ),
     code(
         """
-        summary_cols = ["model", "split", "horizon", "accuracy", "precision", "recall", "f1_score", "roc_auc", "rows", "start_date", "end_date"]
-        display(metrics[summary_cols].style.format({col: "{:.3f}" for col in ["accuracy", "precision", "recall", "f1_score", "roc_auc"]}))
+        summary_cols = ["model", "split", "horizon", "accuracy", "precision", "recall", "f1_score", "mcc", "roc_auc", "rows", "start_date", "end_date"]
+        display(metrics[summary_cols].style.format({col: "{:.3f}" for col in ["accuracy", "precision", "recall", "f1_score", "mcc", "roc_auc"]}))
         """
     ),
     code(
         """
         plot_df = metrics.melt(
             id_vars=["model", "horizon", "split"],
-            value_vars=["accuracy", "precision", "recall", "roc_auc"],
+            value_vars=["accuracy", "precision", "recall", "f1_score", "roc_auc"],
             var_name="metric",
             value_name="value",
         )
 
-        fig, axes = plt.subplots(2, 2, figsize=(16, 11), sharex=True, sharey=True)
-        for ax, metric_name in zip(axes.flat, ["accuracy", "precision", "recall", "roc_auc"]):
+        fig, axes = plt.subplots(3, 2, figsize=(16, 15), sharex=False)
+        metric_names = ["accuracy", "precision", "recall", "f1_score", "roc_auc"]
+        for ax, metric_name in zip(axes.flat, metric_names):
             subset = plot_df[plot_df["metric"] == metric_name]
             sns.barplot(
                 data=subset,
@@ -296,13 +298,16 @@ nb.cells = [
             ax.set_xlabel("")
             ax.set_ylabel("Score")
             ax.set_ylim(0, 1.0)
+            ax.tick_params(axis="x", labelbottom=True)
             if ax is axes.flat[0]:
                 ax.legend(title="")
             else:
                 ax.get_legend().remove()
 
+        axes.flat[-1].axis("off")
+
         fig.suptitle("Forecast Metrics Across Aligned Horizons", y=1.02, fontsize=18)
-        fig.text(0.5, -0.01, "Logistic/XGBoost use validation exports; PatchTST/LSTM use test exports.", ha="center", fontsize=11)
+        fig.text(0.5, -0.01, "All comparison views use aligned held-out test windows.", ha="center", fontsize=11)
         plt.tight_layout()
         save_current_figure("aligned_forecast_metrics.png")
         plt.show()
@@ -579,6 +584,40 @@ nb.cells = [
 
         plt.tight_layout()
         save_current_figure("cross_validation_overview.png")
+        plt.show()
+        """
+    ),
+    md(
+        """
+        ## Matthews Correlation Coefficient
+
+        MCC is shown separately because it is a compact, class-balance-aware summary metric and is easier to read
+        as its own final comparison view than as another crowded subplot in the main metric grid.
+        """
+    ),
+    code(
+        """
+        fig, axes = plt.subplots(1, 3, figsize=(17, 4.8), sharey=True)
+        for ax, horizon in zip(axes, HORIZONS):
+            subset = metrics[metrics["horizon"] == horizon].sort_values("mcc", ascending=True)
+            sns.barplot(
+                data=subset,
+                x="mcc",
+                y="model",
+                hue="model",
+                hue_order=MODEL_ORDER,
+                palette=MODEL_COLORS,
+                legend=False,
+                ax=ax,
+            )
+            ax.set_title(f"{horizon} MCC")
+            ax.set_xlabel("Matthews corrcoef")
+            ax.set_ylabel("")
+            ax.set_xlim(-1.0, 1.0)
+            ax.axvline(0, color="#888888", linestyle="--", linewidth=1)
+
+        plt.tight_layout()
+        save_current_figure("mcc_ranking_by_horizon.png")
         plt.show()
         """
     ),
